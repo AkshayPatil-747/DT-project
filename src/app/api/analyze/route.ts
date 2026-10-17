@@ -29,16 +29,17 @@ export async function POST(req: NextRequest) {
 
     const asin = extraction.asin;
     const domain = extraction.domain || 'amazon.in';
-    const apiKey = process.env.AMAZON_SCRAPER_API_KEY || process.env.RAINFOREST_API_KEY;
+    const customApiKey = req.headers.get('x-scraper-key') || body.customApiKey;
+    const apiKey = customApiKey || process.env.AMAZON_SCRAPER_API_KEY || process.env.SCRAPERAPI_KEY || process.env.RAINFOREST_API_KEY;
 
     let isLiveFetch = false;
     let dataSource = 'Pre-Built Demo Preset';
     let scenarioData: any = null;
 
-    // Check if it's one of the 3 pre-built demo scenarios
+    // Check if it's one of the 3 primary preset demo scenarios
     const isPresetDemo = ['B08N5WRWNW', 'B09XFAK321', 'B07XYZ9999'].includes(asin);
 
-    if (isPresetDemo && !body.forceLive) {
+    if (isPresetDemo && !body.forceLive && !customApiKey) {
       scenarioData = MOCK_SCENARIOS[asin];
       dataSource = 'Simulation Preset';
     } else {
@@ -109,32 +110,37 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // 2. Direct Live Scraping from Amazon (no API key required)
+      // 2. Live Scraping from Amazon (Direct or via ScraperAPI Proxy)
       if (!scenarioData) {
         try {
-          console.log(`Executing direct live scrape for ASIN: ${asin} on domain: ${domain}`);
-          let scraped = await scrapeAmazonLive(asin, domain);
+          console.log(`Executing live scrape for ASIN: ${asin} on domain: ${domain} (proxy: ${Boolean(apiKey)})`);
+          let scraped = await scrapeAmazonLive(asin, domain, apiKey);
 
           // If domain failed and wasn't amazon.com, try amazon.com
           if (!scraped && domain !== 'amazon.com') {
             console.log(`Retrying live scrape for ASIN: ${asin} on amazon.com`);
-            scraped = await scrapeAmazonLive(asin, 'amazon.com');
+            scraped = await scrapeAmazonLive(asin, 'amazon.com', apiKey);
           }
 
           if (scraped && scraped.success) {
             isLiveFetch = true;
-            dataSource = `Live Amazon Scraper (${scraped.domain})`;
+            dataSource = apiKey ? 'ScraperAPI Residential Proxy' : `Live Amazon Scraper (${scraped.domain})`;
             scenarioData = scraped;
           }
         } catch (scrapeErr: any) {
-          console.warn('Direct live scrape error:', scrapeErr.message);
+          console.warn('Live scrape error:', scrapeErr.message);
         }
       }
 
-      // 3. High-fidelity dynamic fallback if Amazon blocked request
+      // 3. Fallback: Check verified catalog first, then dynamic URL slug extractor
       if (!scenarioData) {
-        scenarioData = generateDynamicMock(asin, query);
-        dataSource = 'Adaptive Simulation Engine';
+        if (MOCK_SCENARIOS[asin]) {
+          scenarioData = MOCK_SCENARIOS[asin];
+          dataSource = 'Verified Product Catalog';
+        } else {
+          scenarioData = generateDynamicMock(asin, query);
+          dataSource = 'Adaptive Simulation Engine';
+        }
       }
     }
 

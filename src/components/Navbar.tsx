@@ -1,12 +1,13 @@
 'use client';
 
 import React from 'react';
-import { ShieldCheck, History, Info, Sparkles, CheckCircle2, AlertTriangle, AlertOctagon, Terminal } from 'lucide-react';
+import { ShieldCheck, History, Info, Sparkles, CheckCircle2, AlertTriangle, AlertOctagon, Terminal, Key } from 'lucide-react';
 
 interface NavbarProps {
   onSelectDemo: (asin: string) => void;
   onOpenHistory: () => void;
   onOpenFormula: () => void;
+  onOpenSettings: () => void;
   historyCount: number;
   isLiveApi: boolean;
 }
@@ -15,6 +16,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSelectDemo,
   onOpenHistory,
   onOpenFormula,
+  onOpenSettings,
   historyCount,
   isLiveApi,
 }) => {
@@ -94,6 +96,16 @@ export const Navbar: React.FC<NavbarProps> = ({
             />
             <span>{isLiveApi ? 'Live Scraper Active' : 'Simulation Mode'}</span>
           </div>
+
+          {/* API Settings Trigger */}
+          <button
+            onClick={onOpenSettings}
+            className="flex items-center space-x-1.5 rounded-lg border border-slate-800 bg-slate-900 px-3 py-1.5 text-xs font-medium text-slate-300 transition-colors hover:border-slate-700 hover:bg-slate-800 hover:text-white"
+            title="Configure Scraper API (Fix Cloud IP Blocks)"
+          >
+            <Key className="h-4 w-4 text-cyan-400" />
+            <span className="hidden md:inline">API Config</span>
+          </button>
 
           {/* Formula Modal Trigger */}
           <button

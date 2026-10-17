@@ -11,8 +11,9 @@ import { BuyerRecommendations } from '@/components/BuyerRecommendation';
 import { ReviewExplorer } from '@/components/ReviewExplorer';
 import { HistoryDrawer } from '@/components/HistoryDrawer';
 import { FormulaModal } from '@/components/FormulaModal';
+import { ApiSettingsModal } from '@/components/ApiSettingsModal';
 import { TrustAnalysisResult, HistoryItem } from '@/types/trust';
-import { Sparkles, ArrowUpRight, Scale, ShieldCheck, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Sparkles, ArrowUpRight, Scale, ShieldCheck, CheckCircle2, RefreshCw, Key } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 const ANALYSIS_STEPS = [
@@ -29,6 +30,8 @@ export default function HomePage() {
   const [searchQuery, setSearchQuery] = useState<string>('B08N5WRWNW');
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
   const [isFormulaOpen, setIsFormulaOpen] = useState<boolean>(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [scraperKey, setScraperKey] = useState<string>('');
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [isLiveApi, setIsLiveApi] = useState<boolean>(false);
   const [dataSource, setDataSource] = useState<string>('Simulation Preset');
@@ -37,7 +40,10 @@ export default function HomePage() {
 
   // Initial load: Fetch default analysis (Demo 1: B08N5WRWNW) & history
   useEffect(() => {
-    // Load local history from localStorage if available
+    // Load local scraper key and history from localStorage if available
+    const savedKey = localStorage.getItem('trust_checker_scraper_key') || '';
+    if (savedKey) setScraperKey(savedKey);
+
     const localSaved = localStorage.getItem('trust_checker_history');
     if (localSaved) {
       try {
@@ -58,9 +64,12 @@ export default function HomePage() {
         }
 
         // Auto-analyze Demo 1 on mount so the user has immediate rich data
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (savedKey) headers['x-scraper-key'] = savedKey;
+
         const analyzeRes = await fetch('/api/analyze', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({ query: 'B08N5WRWNW' }),
         });
 
@@ -122,9 +131,14 @@ export default function HomePage() {
     }
 
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (scraperKey) {
+        headers['x-scraper-key'] = scraperKey;
+      }
+
       const res = await fetch('/api/analyze', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ query }),
       });
 
@@ -198,6 +212,7 @@ export default function HomePage() {
         onSelectDemo={handleSelectDemo}
         onOpenHistory={() => setIsHistoryOpen(true)}
         onOpenFormula={() => setIsFormulaOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
         historyCount={history.length}
         isLiveApi={isLiveApi}
       />
@@ -217,19 +232,30 @@ export default function HomePage() {
           <div className="space-y-8 animate-fade-in">
             {/* Live Data Source / Mode Indicator Badge */}
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-2.5 text-xs backdrop-blur-md">
-              <div className="flex items-center space-x-2">
+              <div className="flex flex-wrap items-center space-x-2">
                 <span className={`h-2.5 w-2.5 rounded-full ${isLiveApi ? 'bg-emerald-400 animate-pulse' : 'bg-cyan-400'}`} />
                 <span className="font-semibold text-white">
                   Data Feed: <span className={isLiveApi ? 'text-emerald-300 font-bold' : 'text-cyan-300 font-bold'}>{dataSource}</span>
                 </span>
                 <span className="text-slate-500">•</span>
                 <span className="text-slate-300 text-[11px]">
-                  {isLiveApi ? 'Live scraped from Amazon catalog with real-time price & reviews' : 'Calibrated benchmark scenario'}
+                  {isLiveApi ? 'Live scraped from Amazon catalog with real-time price & reviews' : 'Calibrated benchmark scenario (Cloud WAF fallback)'}
                 </span>
               </div>
-              <span className="font-mono text-[11px] text-slate-400">
-                Audited at {new Date(analysis.timestamp).toLocaleTimeString()}
-              </span>
+              <div className="flex items-center gap-3">
+                {!isLiveApi && (
+                  <button
+                    onClick={() => setIsSettingsOpen(true)}
+                    className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 text-[11px] font-medium transition-colors"
+                  >
+                    <Key className="h-3 w-3" />
+                    <span>Connect Free Proxy Key</span>
+                  </button>
+                )}
+                <span className="font-mono text-[11px] text-slate-400">
+                  Audited at {new Date(analysis.timestamp).toLocaleTimeString()}
+                </span>
+              </div>
             </div>
 
             {/* Top Grid: Trust Gauge + Summary Verdict */}
@@ -324,6 +350,19 @@ export default function HomePage() {
       <FormulaModal
         isOpen={isFormulaOpen}
         onClose={() => setIsFormulaOpen(false)}
+      />
+
+      {/* Cloud API Key Settings Modal */}
+      <ApiSettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onKeySaved={(key) => {
+          setScraperKey(key);
+          if (key) {
+            setIsLiveApi(true);
+            if (searchQuery) handleAnalyze(searchQuery);
+          }
+        }}
       />
 
       {/* Footer */}

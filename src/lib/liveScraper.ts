@@ -42,7 +42,8 @@ const scrapeCache = new Map<string, { result: LiveScrapeResult; expires: number 
  */
 export async function scrapeAmazonLive(
   asin: string,
-  domain: string = 'amazon.in'
+  domain: string = 'amazon.in',
+  apiKey?: string
 ): Promise<LiveScrapeResult | null> {
   const targetDomain = domain && domain.includes('amazon.') ? domain : 'amazon.in';
   const cacheKey = `${asin}_${targetDomain}`;
@@ -73,33 +74,56 @@ export async function scrapeAmazonLive(
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000); // 12s timeout
+    const timeoutId = setTimeout(() => controller.abort(), 16000); // 16s timeout
 
-    console.log(`[liveScraper] Fetching ${productUrl}...`);
-    let res = await fetch(productUrl, {
-      headers,
-      signal: controller.signal,
-      redirect: 'follow',
-      cache: 'no-store',
-    });
+    let html = '';
+
+    // If ScraperAPI / Proxy Key is configured, use it to bypass cloud datacenter IP blocks
+    if (apiKey) {
+      try {
+        console.log(`[liveScraper] Routing through ScraperAPI proxy for ASIN ${asin}...`);
+        const country = targetDomain.includes('.in') ? 'in' : targetDomain.includes('.co.uk') ? 'uk' : 'us';
+        const proxyUrl = `https://api.scraperapi.com?api_key=${apiKey}&url=${encodeURIComponent(productUrl)}&country_code=${country}`;
+        const proxyRes = await fetch(proxyUrl, { signal: controller.signal, cache: 'no-store' });
+        if (proxyRes.ok) {
+          html = await proxyRes.text();
+          console.log(`[liveScraper] ScraperAPI returned ${html.length} bytes`);
+        }
+      } catch (proxyErr: any) {
+        console.warn('[liveScraper] Proxy fetch failed, falling back to direct:', proxyErr.message);
+      }
+    }
+
+    // Direct fetch fallback if no proxy or proxy returned empty
+    if (!html) {
+      console.log(`[liveScraper] Fetching direct ${productUrl}...`);
+      let res = await fetch(productUrl, {
+        headers,
+        signal: controller.signal,
+        redirect: 'follow',
+        cache: 'no-store',
+      });
+
+      console.log(`[liveScraper] ${productUrl} responded with status: ${res.status}`);
+
+      // If initial domain gave 404 or 503, try amazon.com or amazon.in as fallback
+      if ((res.status === 404 || res.status === 503) && targetDomain !== 'amazon.com') {
+        const fallbackUrl = `https://www.amazon.com/dp/${asin}`;
+        console.log(`[liveScraper] Trying fallback URL: ${fallbackUrl}`);
+        res = await fetch(fallbackUrl, { headers, redirect: 'follow', cache: 'no-store' });
+        console.log(`[liveScraper] Fallback responded with status: ${res.status}`);
+      }
+
+      if (!res.ok && res.status !== 200) {
+        console.warn(`[liveScraper] HTTP error ${res.status} for ${asin}`);
+        clearTimeout(timeoutId);
+        return null;
+      }
+
+      html = await res.text();
+    }
 
     clearTimeout(timeoutId);
-    console.log(`[liveScraper] ${productUrl} responded with status: ${res.status}`);
-
-    // If initial domain gave 404 or 503, try amazon.com or amazon.in as fallback
-    if ((res.status === 404 || res.status === 503) && targetDomain !== 'amazon.com') {
-      const fallbackUrl = `https://www.amazon.com/dp/${asin}`;
-      console.log(`[liveScraper] Trying fallback URL: ${fallbackUrl}`);
-      res = await fetch(fallbackUrl, { headers, redirect: 'follow', cache: 'no-store' });
-      console.log(`[liveScraper] Fallback responded with status: ${res.status}`);
-    }
-
-    if (!res.ok && res.status !== 200) {
-      console.warn(`[liveScraper] HTTP error ${res.status} for ${asin}`);
-      return null;
-    }
-
-    const html = await res.text();
     console.log(`[liveScraper] HTML length received: ${html.length}`);
 
     // Check if robot captcha
